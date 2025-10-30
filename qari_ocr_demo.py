@@ -1,16 +1,28 @@
 from PIL import Image
-from transformers import Qwen2VLForConditionalGeneration, AutoProcessor
+from transformers import Qwen2VLForConditionalGeneration, AutoProcessor, BitsAndBytesConfig
 import torch
 from qwen_vl_utils import process_vision_info
 
 
 def load_model(model_name="NAMAA-Space/Qari-OCR-v0.3-VL-2B-Instruct"):
+    """
+    Load the QARI-OCR model with 8-bit quantization to reduce memory usage.
+    The model will be automatically placed on the available device (GPU if available, otherwise CPU).
+    """
+    # Configure 8-bit quantization for reduced VRAM footprint.
+    bnb_config = BitsAndBytesConfig(
+        load_in_8bit=True,
+        llm_int8_threshold=6.0,
+        llm_int8_has_fp16_weight=False,
+    )
     model = Qwen2VLForConditionalGeneration.from_pretrained(
         model_name,
-        torch_dtype="auto",
         device_map="auto",
+        quantization_config=bnb_config,
+        torch_dtype="auto",
+        trust_remote_code=True,
     )
-    processor = AutoProcessor.from_pretrained(model_name)
+    processor = AutoProcessor.from_pretrained(model_name, trust_remote_code=True)
     return model, processor
 
 
@@ -29,6 +41,7 @@ def extract_text_from_image(model, processor, image_path, prompt=None, max_token
             ],
         }
     ]
+    # Prepare inputs for the model
     text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
     image_inputs, video_inputs = process_vision_info(messages)
     inputs = processor(
@@ -42,12 +55,12 @@ def extract_text_from_image(model, processor, image_path, prompt=None, max_token
     inputs = inputs.to(device)
     model.to(device)
     generated_ids = model.generate(**inputs, max_new_tokens=max_tokens)
+    # Trim the input ids from the generated sequence
     generated_ids_trimmed = [
         out_ids[len(in_ids):] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
     ]
     output_text = processor.batch_decode(
-        generated_ids_trimmed, skip_special_tokens=True,
-        clean_up_tokenization_spaces=False
+        generated_ids_trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False
     )[0]
     return output_text
 
