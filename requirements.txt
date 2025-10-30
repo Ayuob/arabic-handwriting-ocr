@@ -1,0 +1,7 @@
+transformers
+qwen_vl_utils
+accelerate>=0.26.0
+peft
+bitsandbytes
+torch
+pillow
